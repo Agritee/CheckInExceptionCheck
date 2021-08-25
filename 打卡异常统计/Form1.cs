@@ -73,7 +73,7 @@ namespace 打卡异常统计
                 foreach (IXLRow r in sheet.Rows())      //获取所有打卡记录
                 {
                     bool exsitFlag = false;
-                    for (int i = 0; i < 200; i++)
+                    for (int i = 0; i < Config.maxEmployeeNum; i++)
                     {
                         if (ems.em[i] != null)
                         {
@@ -89,7 +89,7 @@ namespace 打卡异常统计
 
                     if (exsitFlag == false)     //未找到此人的记录，新增加一个此人的
                     {
-                        for (int i = 0; i < 200; i++)
+                        for (int i = 0; i < Config.maxEmployeeNum; i++)
                         {
                             if (ems.em[i] == null)
                             {
@@ -104,7 +104,7 @@ namespace 打卡异常统计
 
 
                 //分析异常数据
-                for (int i = 0; i < 200; i++)
+                for (int i = 0; i < Config.maxEmployeeNum; i++)
                 {
                     if (ems.em[i] != null)
                     {
@@ -201,14 +201,14 @@ namespace 打卡异常统计
                 //删除原来的统计表
                 foreach(IXLWorksheet w in workbook.Worksheets)
                 {
-                    if (w.Name == "考勤异常统计表")
+                    if (w.Name == Config.exceptionFileName)
                     {
-                        workbook.Worksheet("考勤异常统计表").Delete();
+                        workbook.Worksheet(Config.exceptionFileName).Delete();
                         break;
                     }
                 }
                 //重新生成统计表
-                IXLWorksheet sheetException = workbook.AddWorksheet("考勤异常统计表");
+                IXLWorksheet sheetException = workbook.AddWorksheet(Config.exceptionFileName);
                 int lineIndex = 3;
 
                 //标题
@@ -250,7 +250,8 @@ namespace 打卡异常统计
                 sheetException.Column(11).Width = 18.5;
                 sheetException.Column(12).Width = 18.5;
 
-                for (int i = 0; i < 200; i++)
+                //输出异常到excle和form
+                for (int i = 0; i < Config.maxEmployeeNum; i++)
                 {
                     if (ems.em[i] != null)
                     {
