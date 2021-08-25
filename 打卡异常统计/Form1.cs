@@ -47,18 +47,12 @@ namespace 打卡异常统计
 
             if (ofd.ShowDialog() == DialogResult.OK)
             {
-                if (ofd.FileName == "")
-                {
-                    MessageBox.Show("请选择正确的文件");
-                    return;
-                }
-
                 IXLWorkbook workbook = new XLWorkbook(ofd.FileName);
 
                 bool flag = false;
                 foreach (IXLWorksheet w in workbook.Worksheets)
                 {
-                    if (w.Name == "蓝牙考勤")
+                    if (w.Name == Config.checkInFileName)
                     {
                         flag = true;
                         break;
@@ -72,7 +66,7 @@ namespace 打卡异常统计
                     return;
                 }
 
-                IXLWorksheet sheet = workbook.Worksheet("蓝牙考勤");
+                IXLWorksheet sheet = workbook.Worksheet(Config.checkInFileName);
 
                 Employees ems = new Employees();
 
@@ -86,10 +80,8 @@ namespace 打卡异常统计
                             if (ems.em[i].name == r.Cell(1).Value.ToString())       //找到此人的记录
                             {
                                 exsitFlag = true;
-                                // (ems.em[i].checkInTime.Contains(Convert.ToDateTime(r.Cell(3).Value.ToString())) == false)  //去重
-                                //
-                                    ems.em[i].checkInTime.Add(Convert.ToDateTime(r.Cell(3).Value.ToString()));
-                                //
+                                ems.em[i].checkInTime.Add(Convert.ToDateTime(r.Cell(3).Value.ToString()));
+
                                 break;
                             }
                         }
@@ -246,7 +238,7 @@ namespace 打卡异常统计
                 sheetException.Cell(2, 12).Value = "项目第一责任人签字";
 
 
-                //异常数据
+                //列宽
                 sheetException.Column(3).Width = 8.88;
                 sheetException.Column(4).Width = 18.88;
                 sheetException.Column(5).Width = 14.5;
