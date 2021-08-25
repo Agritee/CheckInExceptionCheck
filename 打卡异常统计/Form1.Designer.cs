@@ -87,7 +87,7 @@
             this.Controls.Add(this.buttonOpenCheckIn);
             this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "Form1";
-            this.Text = "菜菜的打卡统计工具 v01";
+            this.Text = "菜菜的打卡统计工具 v02";
             this.ResumeLayout(false);
             this.PerformLayout();
 
