@@ -816,6 +816,8 @@ namespace 打卡异常统计
         {
             Configuration config = ConfigurationManager.OpenExeConfiguration(System.Windows.Forms.Application.ExecutablePath);
 
+            Config.maxEmployeeNum = Convert.ToInt32(config.AppSettings.Settings["员工总数"].Value) + 10;
+
             Config.checkInFileName = config.AppSettings.Settings["考勤工作表"].Value.ToString();
             Config.exceptionFileName = config.AppSettings.Settings["异常工作表"].Value.ToString();
 
@@ -865,6 +867,9 @@ namespace 打卡异常统计
 //配置文件
 public static class Config
 {
+    //最员工功数
+    public static int maxEmployeeNum = 200;
+
     //打卡记录文件名
     public static string checkInFileName;
 
@@ -985,7 +990,7 @@ public class Employee
 
 public class Employees
 {
-    public Employee[] em = new Employee[200];
+    public Employee[] em = new Employee[Config.maxEmployeeNum];
 }
 
 public enum MatchingStatus
