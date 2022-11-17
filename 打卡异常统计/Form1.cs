@@ -68,19 +68,32 @@ namespace 打卡异常统计
 
                 IXLWorksheet sheet = workbook.Worksheet(Config.checkInFileName);
 
-                Employees ems = new Employees();
+                Employees eplys = new Employees();
 
                 foreach (IXLRow r in sheet.Rows())      //获取所有打卡记录
                 {
+                    if (r.Cell(1).Value.ToString() == "员工姓名")
+                    {
+                        continue;
+                    }
+
                     bool exsitFlag = false;
                     for (int i = 0; i < Config.maxEmployeeNum; i++)
                     {
-                        if (ems.em[i] != null)
+                        if (eplys.employee[i] != null)
                         {
-                            if (ems.em[i].name == r.Cell(1).Value.ToString())       //找到此人的记录
+                            if (eplys.employee[i].name == r.Cell(1).Value.ToString())       //找到此人的记录
                             {
                                 exsitFlag = true;
-                                ems.em[i].checkInTime.Add(Convert.ToDateTime(r.Cell(3).Value.ToString()));
+                                
+                                if (r.Cell(2).Value.ToString() == "签到")
+                                {
+                                    eplys.employee[i].addCheckInTime("签到", Convert.ToDateTime(r.Cell(3).Value.ToString()));
+                                }
+                                else
+                                {
+                                    eplys.employee[i].addCheckInTime("签退", Convert.ToDateTime(r.Cell(4).Value.ToString()));
+                                }
 
                                 break;
                             }
@@ -91,111 +104,133 @@ namespace 打卡异常统计
                     {
                         for (int i = 0; i < Config.maxEmployeeNum; i++)
                         {
-                            if (ems.em[i] == null)
+                            if (eplys.employee[i] == null)
                             {
-                                ems.em[i] = new Employee();
-                                ems.em[i].name = r.Cell(1).Value.ToString();
-                                ems.em[i].checkInTime.Add(Convert.ToDateTime(r.Cell(3).Value.ToString()));
+                                eplys.employee[i] = new Employee();
+                                eplys.employee[i].name = r.Cell(1).Value.ToString();
+
+                                if (Config.groupCList.Contains(eplys.employee[i].name))
+                                {
+                                    eplys.employee[i].group = "C";
+                                }
+                                else if (Config.groupDList.Contains(eplys.employee[i].name))
+                                {
+                                    eplys.employee[i].group = "D";
+                                }
+                                else if (Config.groupEList.Contains(eplys.employee[i].name))
+                                {
+                                    eplys.employee[i].group = "E";
+                                }
+                                else if (Config.groupFList.Contains(eplys.employee[i].name))
+                                {
+                                    eplys.employee[i].group = "F";
+                                }
+
+
+
+                                if (r.Cell(2).Value.ToString() == "签到")
+                                {
+                                    eplys.employee[i].addCheckInTime("签到", Convert.ToDateTime(r.Cell(3).Value.ToString()));
+                                }
+                                else
+                                {
+                                    eplys.employee[i].addCheckInTime("签退", Convert.ToDateTime(r.Cell(4).Value.ToString()));
+                                }
+
+
+
                                 break;
                             }
                         }
                     }
                 }
-
 
                 //分析异常数据
-                for (int i = 0; i < Config.maxEmployeeNum; i++)
+                for (int i = 0; i < eplys.employee.Count(); i++)
                 {
-                    if (ems.em[i] != null)
-                    {
-                        ems.em[i].checkInTime.Sort();
-                        bool repeatNext = false;
+                    if (eplys.employee[i] != null)
+                    { 
+                        bool currentMatched = false, nextMatched = false;
+                        string currentComment = "", nextComment = "";
 
-                        for (int j = 0; j < ems.em[i].checkInTime.Count;)      //需要读取j+1
+                        for (int j = 0; j < eplys.employee[i].checkInfo.Count() - 1;j++)      //需要读取j+1，末尾控制，Count是全索引max
                         {
-                            if (j == ems.em[i].checkInTime.Count - 1)       //只剩最后一条单一记录，不进行匹配
+                            bool isOverTime = false;
+
+                            if (j == 0 && eplys.employee[i].checkInfo[j].checkType == "签退") //首记录为发签退，直接跳过
                             {
-                                MatchingStatus status = MatchingDetectLast(ems.em[i], Convert.ToDateTime(ems.em[i].checkInTime[j]));
-                                if (status != MatchingStatus.Matched)
-                                {
-                                    ems.em[i].CheckInException.Add(ems.em[i].checkInTime[j]);  //写入异常数据
-                                    ems.em[i].CheckInExceptionComments.Add(ConvertMatchStatusToString(status));  //写入异常原因
-                                }
-                                break;
+                                continue;
                             }
 
-                            DateTime tCurrent = Convert.ToDateTime(ems.em[i].checkInTime[j]);
-                            DateTime tNext = Convert.ToDateTime(ems.em[i].checkInTime[j + 1]);
-
-                            
-
-                            if (j > 0)  //检查前后间隔是否大于10分钟，判定重复打卡
+                            if (eplys.employee[i].checkInfo[j] != null)                        
                             {
-                                DateTime tPrev = Convert.ToDateTime(ems.em[i].checkInTime[j - 1]);
+ 
+                                DateTime tCurrent = Convert.ToDateTime(eplys.employee[i].checkInfo[j].checkInTime);
+                                DateTime tNext;
 
-                                //间隔小于10分钟为重复签到
-                                TimeSpan tsCurrent = new TimeSpan(tCurrent.Ticks);
-                                TimeSpan tsPrev = new TimeSpan(tPrev.Ticks);
-                                TimeSpan tsNext = new TimeSpan(tNext.Ticks);
-                                 
-                                double differPrev = tsCurrent.Subtract(tsPrev).Duration().TotalMinutes;
-                                double differNext = tsCurrent.Subtract(tsNext).Duration().TotalMinutes;
-
-                                if (differPrev < 10)  //数据已经在上个match中使用，报错跳过
+                                if (eplys.employee[i].checkInfo[j + 1] == null)  //达到最末尾的数据,结构数组Count全访问
                                 {
-                                    if (repeatNext == false)        //如果是非repeatNext，即使上个match中的end数据，直接报错丢掉，否则继续匹配流程
+                                    //需要单独处理最后一个元素
+                                }
+                                else
+                                {
+                                    tNext = Convert.ToDateTime(eplys.employee[i].checkInfo[j + 1].checkInTime);
+                                    if (j > 0)  //检查前后间隔是否大于10分钟,加班打卡
                                     {
-                                        ems.em[i].CheckInException.Add(ems.em[i].checkInTime[j]);  //写入异常数据
-                                        ems.em[i].CheckInExceptionComments.Add(ConvertMatchStatusToString(MatchingStatus.Repeat));  //写入异常原因
+                                        DateTime tPrev = Convert.ToDateTime(eplys.employee[i].checkInfo[j - 1].checkInTime);
 
-                                        j += 1;
-                                        continue;
+                                        //和上一次数据间隔小于10分钟为重复签到
+                                        TimeSpan tsCurrent = new TimeSpan(tCurrent.Ticks);
+                                        TimeSpan tsPrev = new TimeSpan(tPrev.Ticks);
+
+                                        double differPrev = tsCurrent.Subtract(tsPrev).Duration().TotalMinutes;
+
+                                        if (differPrev <= 20 && eplys.employee[i].checkInfo[j].checkType == eplys.employee[i].checkInfo[j - 1].checkType)  //间隔很小，且为同类型打卡则判定为同类型打卡
+                                        {
+                                            if (Config.isDispRepeat)
+                                            {
+                                                eplys.employee[i].checkInfo[j].comment = "重复打卡";
+                                            }
+
+                                            continue;
+                                        }
+                                        else if (differPrev < 10 && eplys.employee[i].checkInfo[j - 1].checkType == "签退" && eplys.employee[i].checkInfo[j].checkType == "签到") //间隔很小，前者下班，后者上班，则为加班记录
+                                        {
+                                            isOverTime = true; //加班
+                                        }
+                                       
                                     }
-                                    else
+
+                                    //if (Convert.ToDateTime("2022/11/1 6:49:37") == tCurrent)
+                                    //{
+                                    //    var t = 1;
+                                    //}
+
+                                    (currentMatched, nextMatched, currentComment, nextComment)
+                                        = MatchingPairs(eplys.employee[i].group, eplys.employee[i].checkInfo[j].checkType, tCurrent, eplys.employee[i].checkInfo[j + 1].checkType, tNext, isOverTime);
+
+                                    if (currentMatched && nextMatched)  //配对成功
                                     {
-                                        repeatNext = false;     //重置flag，继续匹配流程
+                                        eplys.employee[i].checkInfo[j].comment = currentComment;
+                                        eplys.employee[i].checkInfo[j + 1].comment = nextComment;
+
+                                        j += 1; //配对索引多+1
                                     }
-                                }
-                                else if (differNext < 10)
-                                {
-                                    ems.em[i].CheckInException.Add(ems.em[i].checkInTime[j]);  //写入异常数据
-                                    ems.em[i].CheckInExceptionComments.Add(ConvertMatchStatusToString(MatchingStatus.Repeat));  //写入异常原因
-
-                                    repeatNext = true;      //两个数据都作为begin都未匹配过,报错丢掉第一个，标记flag
-                                    j += 1;
-                                    continue;
-                                }
-                            }
-
-                            MatchingStatus status1 = MatchingDetect(ems.em[i], tCurrent, tNext);
-
-                            if (status1 == MatchingStatus.Matched)
-                            {
-                                j += 2;     //匹配成功跳过此pair数据
-                            }
-                            else
-                            {
-                                if (j != 0)     //非第一条记录
-                                {
-                                    ems.em[i].CheckInException.Add(ems.em[i].checkInTime[j]);  //写入异常数据
-                                    ems.em[i].CheckInExceptionComments.Add(ConvertMatchStatusToString(status1));  //写入异常原因
-                                }
-                                else  //第一条数据，如果end类型则，则begin可能在上一个月的数据，跳过；否则报错
-                                {
-                                    //当其为beginD数据或者Unknow数据时，即使是第一条数据也报错，其他班次不好判断直接丢弃
-                                    //特殊情况下，end数据也会出现Unknow,也丢弃,例如time为0:00-earlsetA之间，会返回Unknow
-                                    if (status1 == MatchingStatus.UnMatchedEndD)
+                                    else if (currentMatched && !nextMatched)    //仅当前成功
                                     {
-                                        ems.em[i].CheckInException.Add(ems.em[i].checkInTime[j]);  //写入异常数据
-                                        ems.em[i].CheckInExceptionComments.Add(ConvertMatchStatusToString(status1));  //写入异常原因
+                                        eplys.employee[i].checkInfo[j].comment = currentComment;
+                                    }
+                                    else      //未有任何匹配成功
+                                    {
+                                        eplys.employee[i].checkInfo[j].comment = currentComment;
                                     }
                                 }
-
-                                j += 1;     //匹配失败只跳过t1
-                            }
+                            }                         
                         }
+
                     }
                 }
+
 
                 //更新异常数据表
                 //删除原来的统计表
@@ -253,26 +288,23 @@ namespace 打卡异常统计
                 //输出异常到excle和form
                 for (int i = 0; i < Config.maxEmployeeNum; i++)
                 {
-                    if (ems.em[i] != null)
+                    if (eplys.employee[i] != null)
                     {
-                        if (ems.em[i].CheckInException.Count > 0)
+                        for (int j = 0; j < eplys.employee[i].checkInfo.Count(); j++)
                         {
-                            for (int j = 0; j < ems.em[i].CheckInException.Count; j++)
+                            if (eplys.employee[i].checkInfo[j] != null && eplys.employee[i].checkInfo[j].comment != null && eplys.employee[i].checkInfo[j].comment != "")
                             {
-                                if (ems.em[i].CheckInExceptionComments[j].ToString() != ConvertMatchStatusToString(MatchingStatus.Repeat))  //重复打卡不显示
-                                {
-                                    sheetException.Cell(lineIndex, 3).Value = ems.em[i].name;
-                                    sheetException.Cell(lineIndex, 5).Value = ems.em[i].CheckInException[j];
-                                    sheetException.Cell(lineIndex, 6).Value = ems.em[i].CheckInExceptionComments[j];
 
-                                    //输出到form
-                                    string nameFix = "         ".Substring(0, (4 - ems.em[i].name.Length) * 2);
-                                    richTextBoxException.Text += nameFix + ems.em[i].name + "      ";
-                                    richTextBoxException.Text += String.Format("{0, -24}{1, -15}\n", ems.em[i].CheckInException[j], ems.em[i].CheckInExceptionComments[j]);
+                                sheetException.Cell(lineIndex, 3).Value = eplys.employee[i].name;
+                                sheetException.Cell(lineIndex, 5).Value = eplys.employee[i].checkInfo[j].checkInTime;
+                                sheetException.Cell(lineIndex, 6).Value = eplys.employee[i].checkInfo[j].comment;
 
-                                    lineIndex++;
-                                }
+                                //输出到form
+                                string nameFix = "         ".Substring(0, (4 - eplys.employee[i].name.Length) * 2);
+                                richTextBoxException.Text += nameFix + eplys.employee[i].name + "      ";
+                                richTextBoxException.Text += String.Format("{0, -24}{1, -15}\n", eplys.employee[i].checkInfo[j].comment, eplys.employee[i].checkInfo[j].comment);
 
+                                lineIndex++;
                             }
                         }
                     }
@@ -373,436 +405,519 @@ namespace 打卡异常统计
             return Convert.ToInt32(tmp);
         }
 
-        public void GetNearlyScheduling(ProbableScheduling p, CurrentWorkingHours e, DateTime time)
+
+        DateTime getEariesstTime(DateTime fixedDate, string offset)
         {
-            DateTime tEariesst, tLatest;
+            DateTime tmp= fixedDate;
+            tmp = tmp.AddHours(-(ParseHour(offset.ToString())));
+            tmp = tmp.AddMinutes(-(ParseMin(offset)));
 
-            //     A班上班范围
-            tEariesst = e.earliestBeginA.AddHours(-(ParseHour(Config.beginOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.beginOffset)));
-
-            tLatest = e.latestBeginA.AddHours(ParseHour(Config.beginOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.beginOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.startA = true;
-                p.activeCount += 1;
-            }
-
-            //     A班下班范围
-            tEariesst = e.earliestEndA.AddHours(-(ParseHour(Config.endOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.endOffset)));
-
-            tLatest = e.latestEndA.AddHours(ParseHour(Config.endOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.endOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.endA = true;
-                p.activeCount += 1;
-            }
-
-            //     B班上班啊范围
-            tEariesst = e.earliestBeginB.AddHours(-(ParseHour(Config.beginOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.beginOffset)));
-
-            tLatest = e.latestBeginB.AddHours(ParseHour(Config.beginOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.beginOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.startB = true;
-                p.activeCount += 1;
-            }
-
-            //     B班下班范围
-            tEariesst = e.earliestEndB.AddHours(-(ParseHour(Config.endOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.endOffset)));
-
-            tLatest = e.latestEndB.AddHours(ParseHour(Config.endOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.endOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.endB = true;
-                p.activeCount += 1;
-            }
-
-            //     C班上班啊范围
-            tEariesst = e.earliestBeginC.AddHours(-(ParseHour(Config.beginOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.beginOffset)));
-
-            tLatest = e.latestBeginC.AddHours(ParseHour(Config.beginOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.beginOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.startC = true;
-                p.activeCount += 1;
-            }
-
-            //     C班下班范围
-            tEariesst = e.earliestEndC.AddHours(-(ParseHour(Config.endOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.endOffset)));
-
-            tLatest = e.latestEndC.AddHours(ParseHour(Config.endOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.endOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.endC = true;
-                p.activeCount += 1;
-            }
-
-            //     D班上班啊范围
-            tEariesst = e.earliestBeginD.AddHours(-(ParseHour(Config.beginOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.beginOffset)));
-
-            tLatest = e.latestBeginD.AddHours(ParseHour(Config.beginOffset));
-            tLatest = tLatest.AddMinutes(ParseMin(Config.beginOffset));
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.startD = true;
-                p.activeCount += 1;
-            }
-
-            //     D班下班范围
-            tEariesst = e.earliestEndD.AddHours(-(ParseHour(Config.endOffset)));
-            tEariesst = tEariesst.AddMinutes(-(ParseMin(Config.endOffset)));
-
-            //tLatest = e.latestEndD.AddHours(ParseHour(Config.endOffset));
-            //tLatest = tLatest.AddMinutes(ParseMin(Config.endOffset));
-            tLatest = e.latestEndD.AddHours(8);  //行政班可能加班到2点
-
-            if (time > tEariesst && time <= tLatest)
-            {
-                p.endD = true;
-                p.activeCount += 1;
-            }
+            return tmp;
         }
 
-        public bool IsAD(string name)       //判断是否是行政员工
+        DateTime getLatestTime(DateTime fixedDate, string offset)
         {
-            //string[] ADlist = {
-            //    "曹可生",
-            //    "孙龙起",
-            //    "黄水珍",
-            //    "尹绍翠",
-            //    "李阳洋",
-            //    "张文东",
-            //    "霍小碧",
-            //    "潘雨珊",
-            //    "刘炬滨",
-            //    "朱云龙",
-            //};
+            DateTime tmp = fixedDate;
+            tmp = tmp.AddHours(ParseHour(offset));
+            tmp = tmp.AddMinutes(ParseMin(offset));
 
-            foreach (string v in Config.administrativeStaffList)
-            {
-                if (v == name)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return tmp;
         }
 
-        //获取对应的班次
-        public MatchingStatus GetReverseSchedule(ProbableScheduling p, CurrentWorkingHours e, DateTime time, bool ADFlag)
+        DateTime getBeginFloatTime(DateTime fixedDate, string offset)
         {
-            if (ADFlag == true)
+            DateTime tmp = fixedDate;
+            tmp = tmp.AddHours(ParseHour(offset));
+            tmp = tmp.AddMinutes(ParseMin(offset));
+            return tmp;
+        }
+
+        DateTime getEndFloatTime(DateTime fixedDate, string offset)
+        {
+            DateTime tmp = fixedDate;
+            tmp = tmp.AddHours(-ParseHour(offset));
+            tmp = tmp.AddMinutes(-ParseMin(offset));
+            return tmp;
+        }
+
+        (bool, string) isInRange(CurrentWorkingHours currentWorkingHours, DateTime time, string group, string checkInType, bool isOverTime)
+        {
+            string tmpGroup = group;
+
+            if (tmpGroup == null || tmpGroup == "")    //AB组不固定，手动区分你
             {
-                if (p.startD == true)
+                if (checkInType == "签到")    //签到
                 {
-                    return MatchingStatus.UnMatchedEndD;
-                }
-                else if (p.endD == true)
-                {
-                    return MatchingStatus.UnMatchedBeginD;
-                }
-
-                return MatchingStatus.Unknow;
-            }
-
-
-            if (p.startA == true || p.startB == true || p.startC == true )     //上班优先
-            {
-                TimeSpan tsTime = new TimeSpan(time.Ticks);
-
-                int[] offset = { 99999, 99999, 99999, 99999, 99999, 99999};
-
-                if (p.startA == true)
-                {
-                    TimeSpan tsEBA = new TimeSpan(e.earliestBeginA.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEBA);
-                    offset[0] = int.Parse(tsE.Duration().TotalSeconds.ToString());
-
-                    TimeSpan tsLBA = new TimeSpan(e.latestBeginA.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLBA);
-                    offset[1] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
-
-                if (p.startB == true)
-                {
-                    TimeSpan tsEBB = new TimeSpan(e.earliestBeginB.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEBB);
-                    offset[2] = int.Parse(tsE.Duration().TotalSeconds.ToString());
-
-                    TimeSpan tsLBB = new TimeSpan(e.latestBeginB.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLBB);
-                    offset[3] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
-
-                if (p.startC == true)
-                {
-                    TimeSpan tsEBC = new TimeSpan(e.earliestBeginC.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEBC);
-                    offset[4] = int.Parse(tsE.Duration().TotalSeconds.ToString());
-
-                    TimeSpan tsLBC = new TimeSpan(e.latestBeginC.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLBC);
-                    offset[5] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
-                
-                for(int i = 0; i < offset.Length; i++)
-                {
-                    if (offset[i] == offset.Min() && offset.Min() != 99999)      //找到距离原始上班班次最近的
+                    if (time >= getEariesstTime(currentWorkingHours.beginA, Config.beginOffset) && time < getLatestTime(currentWorkingHours.beginA, Config.beginOffset)) //满足A班范围
                     {
-                        if (i == 0 || i == 1)
-                        { 
-                            //需返回相对应的班次
-                            return MatchingStatus.UnMatchedEndA;
-                        }
-                        else if (i == 2 || i == 3)
-                        {
-                            return MatchingStatus.UnMatchedEndB;
-                        }
-                        else if (i == 4 || i == 5)
-                        {
-                            return MatchingStatus.UnMatchedEndC;
-                        }
+                        tmpGroup = "A";
+                    }
+                    else if (time >= getEariesstTime(currentWorkingHours.beginB, Config.beginOffset) && time < getLatestTime(currentWorkingHours.beginB, Config.beginOffset)) //满足B班范围
+                    {
+                        tmpGroup = "B";
+                    }
+                    else if (time >= getEariesstTime(currentWorkingHours.beginC, Config.beginOffset) && time < getLatestTime(currentWorkingHours.beginC, Config.beginOffset)) //满足C班范围
+                    {
+                        tmpGroup = "C";
+                    }
+                    else
+                    {
+                        return (false, "未识别班次");
+                    }
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginA && time <= getLatestTime(currentWorkingHours.endA, Config.endOffset)) //满足A班范围
+                    {
+                        tmpGroup = "A";
+                    }
+                    else if (time > currentWorkingHours.beginB && time <= getLatestTime(currentWorkingHours.endB, Config.endOffset)) //满足B班范围
+                    {
+                        tmpGroup = "B";
+                    }
+                    else if (time > currentWorkingHours.beginC && time <= getLatestTime(currentWorkingHours.endC, Config.endOffset)) //满足B班范围
+                    {
+                        tmpGroup = "C";
+                    }
+                    else
+                    {
+                        return (false, "未识别班次");
+                    }
 
-                        break;
+                    //Globle.prevGrop = tmpGroup;  //如果非固定班加班，需要根据上一次成功的判断
+                }
+            }
+
+            if (tmpGroup == "A")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    if (time >= getEariesstTime(currentWorkingHours.beginA, Config.beginOffset) && time < currentWorkingHours.endA) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginA)
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginA, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "上班迟到");       //上班迟到
+                            }
+
+                            return (true, "");       //上班迟到
+                        }
+                    }
+                    
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginA && time <= getLatestTime(currentWorkingHours.endA, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endA)
+                        if (time >= getEndFloatTime(currentWorkingHours.endA, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "下班早退");       //上班迟到
+                            }
+
+                            return (true, ""); 
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+            else if (tmpGroup == "B")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    if (time >= getEariesstTime(currentWorkingHours.beginB, Config.beginOffset) && time < currentWorkingHours.endB) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginB)
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginB, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "上班迟到");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginB && time <= getLatestTime(currentWorkingHours.endB, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endB)
+                        if (time >= getEndFloatTime(currentWorkingHours.endB, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "下班早退");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+            else if (tmpGroup == "C")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    if (time >= getEariesstTime(currentWorkingHours.beginC, Config.beginOffset) && time < currentWorkingHours.endC) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginC)
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginC, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "上班迟到");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginC && time <= getLatestTime(currentWorkingHours.endC, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endC)
+                        if (time >= getEndFloatTime(currentWorkingHours.endC, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "下班早退");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+            else if (tmpGroup == "D")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    DateTime tmp = getEariesstTime(currentWorkingHours.beginD, Config.beginOffset);
+                    if (time >= getEariesstTime(currentWorkingHours.beginD, Config.beginOffset) && time < currentWorkingHours.endD) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginD)
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginD, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "上班迟到");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginD && time <= getLatestTime(currentWorkingHours.endD, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endD)
+                        if (time >= getEndFloatTime(currentWorkingHours.endD, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "下班早退");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+            else if (tmpGroup == "E")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    if (time >= getEariesstTime(currentWorkingHours.beginE, Config.beginOffset) && time < currentWorkingHours.endE) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginE)
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginE, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "上班迟到");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginE && time <= getLatestTime(currentWorkingHours.endE, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endE
+                        if (time >= getEndFloatTime(currentWorkingHours.endE, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (Config.isDispLateEarly)
+                            {
+                                return (true, "下班早退");       //上班迟到
+                            }
+
+                            return (true, "");
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+            else if (tmpGroup == "F")
+            {
+                if (checkInType == "签到")    //签到
+                {
+                    if (time >= getEariesstTime(currentWorkingHours.beginF, Config.beginOffset) && time < currentWorkingHours.endF) //满足上班范围
+                    {
+                        //if (time <= currentWorkingHours.beginF)
+                        var t = getBeginFloatTime(currentWorkingHours.beginF, Config.lateBeginFloat);
+                        if (time <= getBeginFloatTime(currentWorkingHours.beginF, Config.lateBeginFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (isOverTime)        //加班不计迟到
+                            {
+                                return (true, "");
+                            }
+                            else
+                            {
+                                if (Config.isDispLateEarly)
+                                {
+                                    return (true, "上班迟到");       //上班迟到
+                                }
+
+                                return (true, "");
+                            }
+                            
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+                else    //签退
+                {
+                    if (time > currentWorkingHours.beginF && time <= getLatestTime(currentWorkingHours.endF, Config.endOffset)) //满足下班范围
+                    {
+                        //if (time >= currentWorkingHours.endF)
+                        if (time >= getEndFloatTime(currentWorkingHours.endF, Config.earlyEndFloat))
+                        {
+                            return (true, "");                 //上班正常
+                        }
+                        else
+                        {
+                            if (isOverTime)        //加班不计早退
+                            {
+                                return (true, "");
+                            }
+                            else
+                            {
+                                if (Config.isDispLateEarly)
+                                {
+                                    return (true, "下班早退");       //上班迟到
+                                }
+
+                                return (true, "");
+                            }
+                        }
+                    }
+
+                    return (false, "未知");
+                }
+            }
+
+            return (false, "未知");
+        }
+
+        public (bool currentMatched, bool nextMatched, string currentComment, string nextComment) MatchingPairs
+            (string group, string typeCurrent, DateTime timeCurrent, string typeNext, DateTime timeNext, bool isOverTime)
+        {
+            bool cMathend = false, nMathend = false;
+            string cComment = "未知", nComment = "未知";
+
+            if (typeCurrent == null) return (cMathend, nMathend, "记录类型未知", nComment);
+
+            if (typeNext == null) return (cMathend, nMathend, "记录类型未知next", nComment);
+
+            string tmp = timeCurrent.ToString().Substring(0, timeCurrent.ToString().IndexOf(" "));  //找到年月日
+
+            CurrentWorkingHours currentWorkingHours = new CurrentWorkingHours();
+
+            //实例化当天的上下班时间表
+            if (!isOverTime)
+            {
+                currentWorkingHours.beginA = Convert.ToDateTime(tmp + " " + Config.beginA);
+                currentWorkingHours.endA = Convert.ToDateTime(tmp + " " + Config.endA);
+
+                currentWorkingHours.beginB = Convert.ToDateTime(tmp + " " + Config.beginB);
+                currentWorkingHours.endB = Convert.ToDateTime(tmp + " " + Config.endB);
+
+                currentWorkingHours.beginC = Convert.ToDateTime(tmp + " " + Config.beginC);
+                currentWorkingHours.endC = Convert.ToDateTime(tmp + " " + Config.endC);
+                currentWorkingHours.endC = currentWorkingHours.endC.AddDays(1);
+
+                currentWorkingHours.beginD = Convert.ToDateTime(tmp + " " + Config.beginD);
+                currentWorkingHours.endD = Convert.ToDateTime(tmp + " " + Config.endD);
+
+                currentWorkingHours.beginE = Convert.ToDateTime(tmp + " " + Config.beginE);
+                currentWorkingHours.endE = Convert.ToDateTime(tmp + " " + Config.endE);
+                currentWorkingHours.endE = currentWorkingHours.endE.AddDays(1);
+
+                currentWorkingHours.beginF = Convert.ToDateTime(tmp + " " + Config.beginF);
+                currentWorkingHours.endF = Convert.ToDateTime(tmp + " " + Config.endF);
+            }
+            else  //加班时间段
+            {
+                currentWorkingHours.beginA = Convert.ToDateTime(tmp + " " + Config.endA);
+                currentWorkingHours.endA = currentWorkingHours.beginA.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endA = currentWorkingHours.beginA.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                currentWorkingHours.beginB = Convert.ToDateTime(tmp + " " + Config.endB);
+                currentWorkingHours.endB = currentWorkingHours.beginB.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endB = currentWorkingHours.beginB.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                currentWorkingHours.beginC = Convert.ToDateTime(tmp + " " + Config.endC);
+                currentWorkingHours.endC = currentWorkingHours.beginC.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endC= currentWorkingHours.beginC.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                currentWorkingHours.beginD = Convert.ToDateTime(tmp + " " + Config.endD);
+                currentWorkingHours.endD = currentWorkingHours.beginD.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endD = currentWorkingHours.beginD.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                currentWorkingHours.beginE = Convert.ToDateTime(tmp + " " + Config.endE);
+                currentWorkingHours.endE = currentWorkingHours.beginE.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endE = currentWorkingHours.beginE.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                currentWorkingHours.beginF = Convert.ToDateTime(tmp + " " + Config.endF);
+                currentWorkingHours.endF = currentWorkingHours.beginF.AddHours(ParseHour(Config.overTimeDuration));
+                currentWorkingHours.endA = currentWorkingHours.beginF.AddMinutes(ParseMin(Config.overTimeDuration));
+
+            }
+
+
+            if (typeCurrent == "签到")  //签到
+            {
+                if (isOverTime)     //加班签到直接判定，不进入后边流程
+                {
+                    DateTime tmpTime = timeCurrent;
+                    tmpTime = tmpTime.AddHours(ParseHour(Config.overTimeDuration) + 6);
+                    tmpTime = tmpTime.AddMinutes(ParseMin(Config.overTimeDuration));
+
+                    if (timeNext <= tmpTime)
+                    {
+                        return (true, true, "", "");
+                    }
+                    else
+                    {
+                        return (false, false, "未匹配到加班下班数据", "");
                     }
                 }
 
-                return MatchingStatus.Unknow;
-            }
-            else if (p.endA == true || p.endB == true || p.endC == true)
-            {
-                TimeSpan tsTime = new TimeSpan(time.Ticks);
+              
+                var (isInCurrent, commentCurrent) = isInRange(currentWorkingHours, timeCurrent, group, typeCurrent, isOverTime);
 
-                int[] offset = { 99999, 99999, 99999, 99999, 99999, 99999};
-
-                if (p.endA == true)
+                if (isInCurrent == true)   //在签到范围之内，匹配签退
                 {
-                    TimeSpan tsEEA = new TimeSpan(e.earliestEndA.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEEA);
-                    offset[0] = int.Parse(tsE.Duration().TotalSeconds.ToString());
+                    cMathend = true;
+                    cComment = commentCurrent;
 
-                    TimeSpan tsLEA = new TimeSpan(e.latestEndA.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLEA);
-                    offset[1] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
 
-                if (p.endB == true)
-                {
-                    TimeSpan tsEEB = new TimeSpan(e.earliestEndB.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEEB);
-                    offset[2] = int.Parse(tsE.Duration().TotalSeconds.ToString());
-
-                    TimeSpan tsLEB = new TimeSpan(e.latestEndB.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLEB);
-                    offset[3] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
-
-                if (p.endC == true)
-                {
-                    TimeSpan tsEEC = new TimeSpan(e.earliestEndC.Ticks);
-                    TimeSpan tsE = tsTime.Subtract(tsEEC);
-                    offset[4] = int.Parse(tsE.Duration().TotalSeconds.ToString());
-
-                    TimeSpan tsLEC = new TimeSpan(e.latestEndC.Ticks);
-                    TimeSpan tsL = tsTime.Subtract(tsLEC);
-                    offset[5] = int.Parse(tsL.Duration().TotalSeconds.ToString());
-                }
-
-                for (int i = 0; i < offset.Length; i++)
-                {
-                    if (offset[i] == offset.Min() && offset.Min() != 99999)      //找到距离原始上班班次最近的
+                    var (isInNext, commentNext) = isInRange(currentWorkingHours, timeNext, group, typeNext, isOverTime);
+                    if (isInNext == true)   //同时在签退范围
                     {
-                        if (i == 0 || i == 1)
-                        {
-                            return MatchingStatus.UnMatchedBeginA;
-                        }
-                        else if (i == 2 || i == 3)
-                        {
-                            return MatchingStatus.UnMatchedBeginB;
-                        }
-                        else if (i == 4 || i == 5)
-                        {
-                            return MatchingStatus.UnMatchedBeginC;
-                        }
-
-                        break;
+                        nMathend = true;
+                        nComment = commentNext;
                     }
+                    else  //不在签退范围
+                    {
+                        nMathend = false;
+                        cComment = "未找到对应的下班记录";
+                    }
+
+                }
+            }
+            else  //签退
+            {
+                var (isInCurrent, commentCurrent) = isInRange(currentWorkingHours, timeCurrent, group, typeCurrent, isOverTime);
+                if (isInCurrent == true)   //在签退范围之内，不继续匹配，将下一个记录丢给下一次匹配
+                {
+                    cMathend = true;
+                    cComment = "未找到对应的上班记录";
+                }
+                else
+                {
+                    cMathend = false;
+                    cComment = "未找到对应的上班记录2";
                 }
 
-                return MatchingStatus.Unknow;
             }
-            else
-            {
-                return MatchingStatus.Unknow;
-            }
+
+            return (cMathend, nMathend, cComment, nComment);
+
         }
 
-        public MatchingStatus MatchingDetect(Employee e, DateTime time1, DateTime time2)
-        {
-            string tmp = time1.ToString().Substring(0, time1.ToString().IndexOf(" "));  //找到年月日
-
-            CurrentWorkingHours currentWorkingHours = new CurrentWorkingHours();
-            ProbableScheduling probableScheduling1 = new ProbableScheduling();
-            ProbableScheduling probableScheduling2 = new ProbableScheduling();
-
-            //实例化当天的上下班时间表
-            currentWorkingHours.earliestBeginA = Convert.ToDateTime(tmp + " " + Config.earliestBeginA);
-            currentWorkingHours.latestBeginA = Convert.ToDateTime(tmp + " " + Config.latestBeginA);
-            currentWorkingHours.earliestEndA = Convert.ToDateTime(tmp + " " + Config.earliestEndA);
-            currentWorkingHours.latestEndA = Convert.ToDateTime(tmp + " " + Config.latestEndA);
-
-            currentWorkingHours.earliestBeginB = Convert.ToDateTime(tmp + " " + Config.earliestBeginB);
-            currentWorkingHours.latestBeginB = Convert.ToDateTime(tmp + " " + Config.latestBeginB);
-            currentWorkingHours.earliestEndB = Convert.ToDateTime(tmp + " " + Config.earliestEndB);
-            currentWorkingHours.latestEndB = Convert.ToDateTime(tmp + " " + Config.latestEndB);
-            currentWorkingHours.latestEndB = currentWorkingHours.latestEndB.AddDays(1);
-
-            currentWorkingHours.earliestBeginC = Convert.ToDateTime(tmp + " " + Config.earliestBeginC);
-            currentWorkingHours.latestBeginC = Convert.ToDateTime(tmp + " " + Config.latestBeginC);
-            currentWorkingHours.earliestEndC = Convert.ToDateTime(tmp + " " + Config.earliestEndC);
-            currentWorkingHours.earliestEndC = currentWorkingHours.earliestEndC.AddDays(1);
-            currentWorkingHours.latestEndC = Convert.ToDateTime(tmp + " " + Config.latestEndC);
-            currentWorkingHours.latestEndC = currentWorkingHours.latestEndC.AddDays(1);
-
-            currentWorkingHours.earliestBeginD = Convert.ToDateTime(tmp + " " + Config.earliestBeginD);
-            currentWorkingHours.latestBeginD = Convert.ToDateTime(tmp + " " + Config.latestBeginD);
-            currentWorkingHours.earliestEndD = Convert.ToDateTime(tmp + " " + Config.earliestEndD);
-            currentWorkingHours.latestEndD = Convert.ToDateTime(tmp + " " + Config.latestEndD);
-
-            //解析目标时间可能的班次到到probableScheduling
-
-            GetNearlyScheduling(probableScheduling1, currentWorkingHours, time1);
-            GetNearlyScheduling(probableScheduling2, currentWorkingHours, time2);
-
-            //当t1和t2相差超过一天的时候，可能出现probableScheduling2.activeCount = 0
-            //当为某人的第一条打卡数据时，可能出现"2021/7/1  1:03:00"这种不在任何范围，activeCount1和activeCount2都为0的情况
-            if (probableScheduling1.activeCount == 0 || probableScheduling2.activeCount == 0)
-            {
-                
-                if (probableScheduling1.activeCount == 0)       //第一条数据不在班次时间范围，未未知数据
-                {
-                    return MatchingStatus.Unknow;
-                }
-                else  //2=0,1!=0 找对应的1的不匹配数据
-                {
-                    return GetReverseSchedule(probableScheduling1, currentWorkingHours, time1, IsAD(e.name));
-                }
-            }
-
-            //有配对的记录
-            if (IsAD(e.name))       //行政
-            {
-                if (probableScheduling1.startD && probableScheduling2.endD)
-                {
-                    return MatchingStatus.Matched;
-                }
-                else
-                {
-                    return GetReverseSchedule(probableScheduling1, currentWorkingHours, time1, true);
-                }
-            }
-            else  //abc班
-            {
-                if ((probableScheduling1.startA && probableScheduling2.endA) ||
-                    (probableScheduling1.startB && probableScheduling2.endB) ||
-                    (probableScheduling1.startC && probableScheduling2.endC))
-                {
-                    return MatchingStatus.Matched;
-                }
-                else
-                {
-                    return GetReverseSchedule(probableScheduling1, currentWorkingHours, time1, false);
-                }
-            }
-        }
-
-        public MatchingStatus MatchingDetectLast(Employee e, DateTime time)
-        {
-            string tmp = time.ToString().Substring(0, time.ToString().IndexOf(" "));  //找到年月日
-
-            CurrentWorkingHours currentWorkingHours = new CurrentWorkingHours();
-            ProbableScheduling probableScheduling = new ProbableScheduling();
-
-            //实例化当天的上下班时间表
-            currentWorkingHours.earliestBeginA = Convert.ToDateTime(tmp + " " + Config.earliestBeginA);
-            currentWorkingHours.latestBeginA = Convert.ToDateTime(tmp + " " + Config.latestBeginA);
-            currentWorkingHours.earliestEndA = Convert.ToDateTime(tmp + " " + Config.earliestEndA);
-            currentWorkingHours.latestEndA = Convert.ToDateTime(tmp + " " + Config.latestEndA);
-
-            currentWorkingHours.earliestBeginB = Convert.ToDateTime(tmp + " " + Config.earliestBeginB);
-            currentWorkingHours.latestBeginB = Convert.ToDateTime(tmp + " " + Config.latestBeginB);
-            currentWorkingHours.earliestEndB = Convert.ToDateTime(tmp + " " + Config.earliestEndB);
-            currentWorkingHours.latestEndB = Convert.ToDateTime(tmp + " " + Config.latestEndB);
-            currentWorkingHours.latestEndB = currentWorkingHours.latestEndB.AddDays(1);
-
-            currentWorkingHours.earliestBeginC = Convert.ToDateTime(tmp + " " + Config.earliestBeginC);
-            currentWorkingHours.latestBeginC = Convert.ToDateTime(tmp + " " + Config.latestBeginC);
-            currentWorkingHours.earliestEndC = Convert.ToDateTime(tmp + " " + Config.earliestEndC);
-            currentWorkingHours.earliestEndC = currentWorkingHours.earliestEndC.AddDays(1);
-            currentWorkingHours.latestEndC = Convert.ToDateTime(tmp + " " + Config.latestEndC);
-            currentWorkingHours.latestEndC = currentWorkingHours.latestEndC.AddDays(1);
-
-            currentWorkingHours.earliestBeginD = Convert.ToDateTime(tmp + " " + Config.earliestBeginD);
-            currentWorkingHours.latestBeginD = Convert.ToDateTime(tmp + " " + Config.latestBeginD);
-            currentWorkingHours.earliestEndD = Convert.ToDateTime(tmp + " " + Config.earliestEndD);
-            currentWorkingHours.latestEndD = Convert.ToDateTime(tmp + " " + Config.latestEndD);
-
-            //解析目标时间可能的班次到到probableScheduling
-            GetNearlyScheduling(probableScheduling, currentWorkingHours, time);
-
-            if (IsAD(e.name))
-            {
-                if (probableScheduling.startD == true)
-                {
-                    return MatchingStatus.Matched;  //最后一条为上班记录，则可能下班记录在下个月的表，判定为正常
-                }
-                else if (probableScheduling.endD == true)   //确实上班记录
-                {
-                    return MatchingStatus.UnMatchedBeginD;
-                }
-                else
-                {
-                    return MatchingStatus.Unknow;
-                }
-            }
-            else
-            {
-                if (probableScheduling.startA == true || probableScheduling.startB == true || probableScheduling.startC == true)
-                {
-                    return MatchingStatus.Matched;
-                }
-                else if (probableScheduling.endA == true || probableScheduling.endB == true || probableScheduling.endC == true)
-                {
-                    return GetReverseSchedule(probableScheduling, currentWorkingHours, time, false);
-                }
-                else
-                {
-                    return MatchingStatus.Unknow;
-                }
-            }
-
-        }
 
         //初始化配置，导入班次时间表和行政人员名单
         public void InitConfiguration()
@@ -810,43 +925,62 @@ namespace 打卡异常统计
             Configuration config = ConfigurationManager.OpenExeConfiguration(System.Windows.Forms.Application.ExecutablePath);
 
             Config.maxEmployeeNum = Convert.ToInt32(config.AppSettings.Settings["员工总数"].Value) + 10;
-
+            Config.maxCheckInfoNum = Convert.ToInt32(config.AppSettings.Settings["单人最多记录条数"].Value) + 10;
+            
             Config.checkInFileName = config.AppSettings.Settings["考勤工作表"].Value.ToString();
             Config.exceptionFileName = config.AppSettings.Settings["异常工作表"].Value.ToString();
 
-            Config.earliestBeginA = config.AppSettings.Settings["earliestBeginA"].Value.ToString();
-            Config.latestBeginA = config.AppSettings.Settings["latestBeginA"].Value.ToString();
-            Config.earliestEndA = config.AppSettings.Settings["earliestEndA"].Value.ToString();
-            Config.latestEndA = config.AppSettings.Settings["latestEndA"].Value.ToString();
-
-            Config.earliestBeginB = config.AppSettings.Settings["earliestBeginB"].Value.ToString();
-            Config.latestBeginB = config.AppSettings.Settings["latestBeginB"].Value.ToString();
-            Config.earliestEndB = config.AppSettings.Settings["earliestEndB"].Value.ToString();
-            Config.latestEndB = config.AppSettings.Settings["latestEndB"].Value.ToString();
-
-            Config.earliestBeginC = config.AppSettings.Settings["earliestBeginC"].Value.ToString();
-            Config.latestBeginC = config.AppSettings.Settings["latestBeginC"].Value.ToString();
-            Config.earliestEndC = config.AppSettings.Settings["earliestEndC"].Value.ToString();
-            Config.latestEndC = config.AppSettings.Settings["latestEndC"].Value.ToString();
-
-            Config.earliestBeginD = config.AppSettings.Settings["earliestBeginD"].Value.ToString();
-            Config.latestBeginD = config.AppSettings.Settings["latestBeginD"].Value.ToString();
-            Config.earliestEndD = config.AppSettings.Settings["earliestEndD"].Value.ToString();
-            Config.latestEndD = config.AppSettings.Settings["latestEndD"].Value.ToString();
-
-            Config.beginOffset = config.AppSettings.Settings["beginOffset"].Value.ToString();
-            Config.endOffset = config.AppSettings.Settings["endOffset"].Value.ToString();
-
-            string[] list = config.AppSettings.Settings["行政班名单"].Value.ToString().Split(new char[2] { ',', '，' });
-
-            if (list.Length == 0)
+            if (config.AppSettings.Settings["显示重复签到"].Value.ToString() == "是")
             {
-                MessageBox.Show("行政班名单出错！");
-                System.Windows.Forms.Application.ExitThread();
-                return;
+                Config.isDispRepeat = true;
             }
 
-            Config.administrativeStaffList = list;
+            if (config.AppSettings.Settings["显示迟到早退"].Value.ToString() == "是")
+            {
+                Config.isDispLateEarly = true;
+            }
+
+
+            string[] listGroupA = config.AppSettings.Settings["A班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+            string[] listGroupB = config.AppSettings.Settings["B班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+            string[] listGroupC = config.AppSettings.Settings["C班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+            string[] listGroupD = config.AppSettings.Settings["D班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+            string[] listGroupE = config.AppSettings.Settings["E班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+            string[] listGroupF = config.AppSettings.Settings["行政班名单"].Value.ToString().Split(new char[3] { ',', '，', '、' });
+
+            Config.groupAList= listGroupA;
+            Config.groupBList= listGroupB;
+            Config.groupCList= listGroupC;
+            Config.groupDList= listGroupD;
+            Config.groupEList= listGroupE;
+            Config.groupFList= listGroupF;
+
+
+            Config.beginA = config.AppSettings.Settings["A班上班时间"].Value.ToString();
+            Config.endA = config.AppSettings.Settings["A班下班时间"].Value.ToString();
+
+            Config.beginB = config.AppSettings.Settings["B班上班时间"].Value.ToString();
+            Config.endB = config.AppSettings.Settings["B班下班时间"].Value.ToString();
+
+            Config.beginC = config.AppSettings.Settings["C班上班时间"].Value.ToString();
+            Config.endC = config.AppSettings.Settings["C班下班时间"].Value.ToString();
+
+            Config.beginD = config.AppSettings.Settings["D班上班时间"].Value.ToString();
+            Config.endD = config.AppSettings.Settings["D班下班时间"].Value.ToString();
+
+            Config.beginE = config.AppSettings.Settings["E班上班时间"].Value.ToString();
+            Config.endE = config.AppSettings.Settings["E班下班时间"].Value.ToString();
+
+            Config.beginF = config.AppSettings.Settings["行政班上班时间"].Value.ToString();
+            Config.endF = config.AppSettings.Settings["行政班下班时间"].Value.ToString();
+
+            Config.beginOffset = config.AppSettings.Settings["上班时间容错区间"].Value.ToString();
+            Config.endOffset = config.AppSettings.Settings["下班时间容错区间"].Value.ToString();
+
+            Config.overTimeDuration = config.AppSettings.Settings["最大加班时常"].Value.ToString();
+
+            Config.lateBeginFloat = config.AppSettings.Settings["迟到浮动时间"].Value.ToString();
+            Config.earlyEndFloat = config.AppSettings.Settings["早退浮动时间"].Value.ToString();
         }
 
         private void buttonExit_Click(object sender, EventArgs e)
@@ -860,8 +994,11 @@ namespace 打卡异常统计
 //配置文件
 public static class Config
 {
-    //最员工功数
+    //最大员工数量
     public static int maxEmployeeNum = 200;
+
+    //单个员工最多记录
+    public static int maxCheckInfoNum = 12 * 60;
 
     //打卡记录文件名
     public static string checkInFileName;
@@ -869,121 +1006,106 @@ public static class Config
     //导出异常文件名
     public static string exceptionFileName;
 
-    //行政人员名单
-    public static string[] administrativeStaffList;
+    public static bool isDispRepeat = false;
 
-    //早班
-    public static string earliestBeginA = "4:30";
-    public static string latestBeginA = "6:20";
-    public static string earliestEndA = "14:00";
-    public static string latestEndA = "17:00";
+    public static bool isDispLateEarly = false;
 
-    //中班
-    public static string earliestBeginB = "12:00";
-    public static string latestBeginB = "14:00";
-    public static string earliestEndB = "22:00";
-    public static string latestEndB = "2:00";
+    //各个班次人员列表
+    public static string[] groupAList;
+    public static string[] groupBList;
+    public static string[] groupCList;
+    public static string[] groupDList;
+    public static string[] groupEList;
+    public static string[] groupFList;
 
-    //晚班
-    public static string earliestBeginC = "16:30";
-    public static string latestBeginC = "21:00";
-    public static string earliestEndC = "1:00";
-    public static string latestEndC = "5:00";
+    //班次
+    public static string beginA = "6:30";
+    public static string endA = "14:30";
 
-    //正常行政班
-    public static string earliestBeginD = "7:30";
-    public static string latestBeginD = "8:30";
-    public static string earliestEndD = "18:00";
-    public static string latestEndD = "18:00";
+    public static string beginB = "14:30";
+    public static string endB = "22:30";
 
-    //上下班容错时间
+    public static string beginC = "22:30";
+    public static string endC = "6:30";
+
+    public static string beginD = "7:00";
+    public static string endD = "19:00";
+
+    public static string beginE = "19:00";
+    public static string endE = "7:00";
+
+    //F 行政人员名单
+    public static string beginF = "8:30";
+    public static string endF = "17:30";
+
     public static string beginOffset = "1:30";
-    public static string endOffset = "4:00";
+    public static string endOffset = "9:00";
+
+    public static string overTimeDuration = "8:00";
+
+    public static string lateBeginFloat = "0:10";
+    public static string earlyEndFloat = "0:10";
 }
 
 
-//班次工作时间表
-//public static class WorkingHours
-//{
-//    //早班
-//    public static string earliestBeginA = "4:30";
-//    public static string latestBeginA = "6:20";
-//    public static string earliestEndA = "14:00";
-//    public static string latestEndA = "17:00";
 
-//    //中班
-//    public static string earliestBeginB = "12:00";
-//    public static string latestBeginB = "14:00";
-//    public static string earliestEndB = "22:00";
-//    public static string latestEndB = "2:00";
-
-//    //晚班
-//    public static string earliestBeginC = "16:30";
-//    public static string latestBeginC = "21:00";
-//    public static string earliestEndC = "1:00";
-//    public static string latestEndC = "5:00";
-
-//    //正常行政班
-//    public static string earliestBeginD = "7:30";
-//    public static string latestBeginD = "8:30";
-//    public static string earliestEndD = "18:00";
-//    public static string latestEndD = "18:00";
-
-//    //上下班容错时间
-//    public static string beginOffset = "1:30";
-//    public static string endOffset = "4:00";
-//}
 
 //当天工作时间表示例化，加入了年月日
 public class CurrentWorkingHours
 {
-    public DateTime earliestBeginA;
-    public DateTime latestBeginA;
-    public DateTime earliestEndA;
-    public DateTime latestEndA;
+    public DateTime beginA;
+    public DateTime endA;
 
-    public DateTime earliestBeginB;
-    public DateTime latestBeginB;
-    public DateTime earliestEndB;
-    public DateTime latestEndB;
+    public DateTime beginB;
+    public DateTime endB;
 
-    public DateTime earliestBeginC;
-    public DateTime latestBeginC;
-    public DateTime earliestEndC;
-    public DateTime latestEndC;
+    public DateTime beginC;
+    public DateTime endC;
 
-    public DateTime earliestBeginD;
-    public DateTime latestBeginD;
-    public DateTime earliestEndD;
-    public DateTime latestEndD;
+    public DateTime beginD;
+    public DateTime endD;
+
+    public DateTime beginE;
+    public DateTime endE;
+
+    public DateTime beginF;
+    public DateTime endF;
 }
 
-public class ProbableScheduling
+public class CheckInInfo
 {
-    public bool startA = false;
-    public bool startB = false;
-    public bool startC = false;
-    public bool startD = false;
-
-    public bool endA = false;
-    public bool endB = false;
-    public bool endC = false;
-    public bool endD = false;
-
-    public int activeCount = 0;
+    public string checkType;
+    public DateTime checkInTime;
+    public string comment;
 }
 
 public class Employee
 {
     public string name;
-    public ArrayList checkInTime = new ArrayList();
-    public ArrayList CheckInException = new ArrayList();
+    public string group;
+
     public ArrayList CheckInExceptionComments = new ArrayList();
+
+    public CheckInInfo[] checkInfo = new CheckInInfo[Config.maxCheckInfoNum];
+
+    public void addCheckInTime(string status, DateTime checkInTime)
+    {
+        for (int i = 0; i < Config.maxEmployeeNum; i++)
+        {
+            if (checkInfo[i] == null)
+            {
+                checkInfo[i] = new CheckInInfo();
+                checkInfo[i].checkType = status;
+                checkInfo[i].checkInTime = checkInTime;
+                break;
+            }
+        }
+    }
 }
 
 public class Employees
 {
-    public Employee[] em = new Employee[Config.maxEmployeeNum];
+    public Employee[] employee = new Employee[Config.maxEmployeeNum];
 }
 
 public enum MatchingStatus
@@ -1000,3 +1122,4 @@ public enum MatchingStatus
     Repeat,
     Unknow,
 }
+
