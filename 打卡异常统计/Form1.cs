@@ -276,7 +276,7 @@ namespace 打卡异常统计
                 //列宽
                 sheetException.Column(3).Width = 8.88;
                 sheetException.Column(4).Width = 18.88;
-                sheetException.Column(5).Width = 14.5;
+                sheetException.Column(5).Width = 16.5;
                 sheetException.Column(6).Width = 16.38;
                 sheetException.Column(7).Width = 12.5;
                 sheetException.Column(8).Width = 13.25;
@@ -871,7 +871,7 @@ namespace 打卡异常统计
                     }
                     else
                     {
-                        return (false, false, "未匹配到加班下班数据", "");
+                        return (false, false, "无加班下班数据", "");
                     }
                 }
 
@@ -893,7 +893,7 @@ namespace 打卡异常统计
                     else  //不在签退范围
                     {
                         nMathend = false;
-                        cComment = "未找到对应的下班记录";
+                        cComment = "无下班记录";
                     }
 
                 }
@@ -904,12 +904,12 @@ namespace 打卡异常统计
                 if (isInCurrent == true)   //在签退范围之内，不继续匹配，将下一个记录丢给下一次匹配
                 {
                     cMathend = true;
-                    cComment = "未找到对应的上班记录";
+                    cComment = "无上班记录";
                 }
                 else
                 {
                     cMathend = false;
-                    cComment = "未找到对应的上班记录2";
+                    cComment = "无上班记录2";
                 }
 
             }
